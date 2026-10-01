@@ -1,3 +1,4 @@
+using BankService.Api.Helpers;
 using BankService.Application.DTOs;
 using BankService.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -30,7 +31,7 @@ public class BranchesController : ControllerBase
     public async Task<ActionResult<BranchDto>> GetById(int id, CancellationToken ct)
     {
         var result = await _branchService.GetByIdAsync(id, ct);
-        return result is null ? NotFound() : Ok(result);
+        return result is null ? ApiErrors.NotFound() : Ok(result);
     }
 
     [HttpPost]
@@ -46,6 +47,6 @@ public class BranchesController : ControllerBase
     public async Task<ActionResult<BranchDto>> Update(int id, [FromBody] UpdateBranchRequest request, CancellationToken ct)
     {
         var result = await _branchService.UpdateAsync(id, request, ct);
-        return result is null ? NotFound() : Ok(result);
+        return result is null ? ApiErrors.NotFound() : Ok(result);
     }
 }

@@ -1,3 +1,4 @@
+using BankService.Api.Helpers;
 using BankService.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -23,12 +24,12 @@ public class MigrationController : ControllerBase
     {
         if (file is null || file.Length == 0)
         {
-            return BadRequest("No file uploaded.");
+            return ApiErrors.BadRequest("No file uploaded.");
         }
 
         if (!file.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
         {
-            return BadRequest("Only CSV files are supported.");
+            return ApiErrors.BadRequest("Only CSV files are supported.");
         }
 
         await using var stream = file.OpenReadStream();

@@ -27,7 +27,7 @@ public class ServiceRequestService : IServiceRequestService
     }
 
     public async Task<PagedResult<ServiceRequestSummaryDto>> GetListAsync(
-        ServiceRequestListQuery query, string currentUserId, bool isAdminOrManager, CancellationToken ct = default)
+        ServiceRequestListQuery query, string currentUserId, RequestActor actor, CancellationToken ct = default)
     {
         var q = _dbContext.ServiceRequests
             .Include(r => r.Requester)
@@ -36,7 +36,7 @@ public class ServiceRequestService : IServiceRequestService
             .AsNoTracking()
             .AsQueryable();
 
-        if (!isAdminOrManager)
+        if (actor == RequestActor.Requester)
         {
             q = q.Where(r => r.RequesterId == currentUserId || r.AssignedToId == currentUserId);
         }
@@ -69,10 +69,18 @@ public class ServiceRequestService : IServiceRequestService
         };
 
         var totalCount = await q.CountAsync(ct);
+
         var items = await q
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
             .ToListAsync(ct);
+
+        var pageIds = items.Select(r => r.Id).ToList();
+        var commentCounts = await _dbContext.Comments
+            .Where(c => pageIds.Contains(c.ServiceRequestId))
+            .GroupBy(c => c.ServiceRequestId)
+            .Select(group => new { RequestId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(x => x.RequestId, x => x.Count, ct);
 
         var dtos = items.Select(r => new ServiceRequestSummaryDto(
             r.Id,
@@ -81,7 +89,7 @@ public class ServiceRequestService : IServiceRequestService
             r.Category,
             r.Status,
             r.Priority,
-            r.Requester.FullName,
+            r.Requester?.FullName ?? "Unknown",
             r.AssignedTo?.FullName,
             r.Branch?.Name,
             r.RequiresApproval,
@@ -89,14 +97,14 @@ public class ServiceRequestService : IServiceRequestService
             r.CreatedAt,
             r.DueDate,
             r.ResolvedAt,
-            r.Comments.Count)).ToList();
+            commentCounts.GetValueOrDefault(r.Id))).ToList();
 
         return new PagedResult<ServiceRequestSummaryDto>(
             dtos, totalCount, query.Page, query.PageSize,
             (int)Math.Ceiling(totalCount / (double)query.PageSize));
     }
 
-    public async Task<ServiceRequestDetailDto?> GetByIdAsync(int id, string currentUserId, bool isAdminOrManager, CancellationToken ct = default)
+    public async Task<ServiceRequestDetailDto?> GetByIdAsync(int id, string currentUserId, RequestActor actor, CancellationToken ct = default)
     {
         var r = await _dbContext.ServiceRequests
             .Include(r => r.Requester)
@@ -112,12 +120,9 @@ public class ServiceRequestService : IServiceRequestService
             .FirstOrDefaultAsync(r => r.Id == id, ct);
 
         if (r is null) return null;
-        if (!isAdminOrManager && r.RequesterId != currentUserId && r.AssignedToId != currentUserId)
-        {
-            throw new UnauthorizedAccessException("You do not have access to this request.");
-        }
+        EnsureCanRead(r, currentUserId, actor);
 
-        return MapToDetail(r, isAdminOrManager);
+        return MapToDetail(r, actor, currentUserId);
     }
 
     public async Task<ServiceRequestDetailDto> CreateAsync(CreateServiceRequestRequest request, string currentUserId, CancellationToken ct = default)
@@ -153,11 +158,11 @@ public class ServiceRequestService : IServiceRequestService
         await LogAuditAsync(AuditAction.RequestCreated, "ServiceRequest", entity.Id.ToString(),
             $"Created request {entity.RequestNumber}", ct);
 
-        return await GetByIdAsync(entity.Id, currentUserId, true, ct)
+        return await GetByIdAsync(entity.Id, currentUserId, RequestActor.Requester, ct)
             ?? throw new InvalidOperationException("Failed to retrieve created request.");
     }
 
-    public async Task<ServiceRequestDetailDto?> UpdateAsync(int id, UpdateServiceRequestRequest request, string currentUserId, bool isAdminOrManager, CancellationToken ct = default)
+    public async Task<ServiceRequestDetailDto?> UpdateAsync(int id, UpdateServiceRequestRequest request, string currentUserId, RequestActor actor, CancellationToken ct = default)
     {
         var entity = await _dbContext.ServiceRequests
             .Include(r => r.Requester)
@@ -166,9 +171,9 @@ public class ServiceRequestService : IServiceRequestService
             .FirstOrDefaultAsync(r => r.Id == id, ct)
             ?? throw new KeyNotFoundException("Request not found.");
 
-        if (!isAdminOrManager && entity.RequesterId != currentUserId)
+        if (actor != RequestActor.Manager && entity.RequesterId != currentUserId)
         {
-            throw new UnauthorizedAccessException("Only the requester or an admin can edit this request.");
+            throw new UnauthorizedAccessException("Only the requester or a manager can edit this request.");
         }
 
         if (entity.Status is RequestStatus.Closed or RequestStatus.Resolved)
@@ -187,10 +192,10 @@ public class ServiceRequestService : IServiceRequestService
         await _dbContext.SaveChangesAsync(ct);
         await LogAuditAsync(AuditAction.RequestUpdated, "ServiceRequest", id.ToString(), $"Updated request {entity.RequestNumber}", ct);
 
-        return await GetByIdAsync(id, currentUserId, isAdminOrManager, ct);
+        return await GetByIdAsync(id, currentUserId, actor, ct);
     }
 
-    public async Task<ServiceRequestDetailDto?> UpdateStatusAsync(int id, UpdateStatusRequest request, string currentUserId, bool isAdminOrManager, CancellationToken ct = default)
+    public async Task<ServiceRequestDetailDto?> UpdateStatusAsync(int id, UpdateStatusRequest request, string currentUserId, RequestActor actor, CancellationToken ct = default)
     {
         var entity = await _dbContext.ServiceRequests
             .Include(r => r.Requester)
@@ -199,9 +204,11 @@ public class ServiceRequestService : IServiceRequestService
             .FirstOrDefaultAsync(r => r.Id == id, ct)
             ?? throw new KeyNotFoundException("Request not found.");
 
-        if (!isAdminOrManager && entity.RequesterId != currentUserId && entity.AssignedToId != currentUserId)
+        EnsureCanRead(entity, currentUserId, actor);
+
+        if (actor == RequestActor.Requester)
         {
-            throw new UnauthorizedAccessException("You do not have access to this request.");
+            throw new UnauthorizedAccessException("Only support staff or a manager can change a request's status.");
         }
 
         if (entity.Status == request.Status)
@@ -229,7 +236,7 @@ public class ServiceRequestService : IServiceRequestService
         await LogAuditAsync(AuditAction.StatusChanged, "ServiceRequest", id.ToString(),
             $"Status changed from {fromStatus} to {request.Status} for {entity.RequestNumber}", ct);
 
-        return await GetByIdAsync(id, currentUserId, isAdminOrManager, ct);
+        return await GetByIdAsync(id, currentUserId, actor, ct);
     }
 
     public async Task<ServiceRequestDetailDto?> AssignAsync(int id, AssignRequest request, string currentUserId, CancellationToken ct = default)
@@ -278,10 +285,10 @@ public class ServiceRequestService : IServiceRequestService
         await LogAuditAsync(AuditAction.RequestAssigned, "ServiceRequest", id.ToString(),
             $"Assigned {entity.RequestNumber} to {assignee.FullName}", ct);
 
-        return await GetByIdAsync(id, currentUserId, true, ct);
+        return await GetByIdAsync(id, currentUserId, RequestActor.Manager, ct);
     }
 
-    public async Task<ServiceRequestDetailDto?> AddCommentAsync(int id, AddCommentRequest request, string currentUserId, CancellationToken ct = default)
+    public async Task<ServiceRequestDetailDto?> AddCommentAsync(int id, AddCommentRequest request, string currentUserId, RequestActor actor, CancellationToken ct = default)
     {
         var entity = await _dbContext.ServiceRequests
             .Include(r => r.Requester)
@@ -289,6 +296,15 @@ public class ServiceRequestService : IServiceRequestService
             .Include(r => r.Branch)
             .FirstOrDefaultAsync(r => r.Id == id, ct)
             ?? throw new KeyNotFoundException("Request not found.");
+
+        EnsureCanRead(entity, currentUserId, actor);
+
+        // A requester cannot author an internal note about their own request, even
+        // when their roles would otherwise qualify them as staff.
+        if (request.IsInternal && (actor == RequestActor.Requester || entity.RequesterId == currentUserId))
+        {
+            throw new UnauthorizedAccessException("Only support staff or a manager can add an internal comment.");
+        }
 
         _dbContext.Comments.Add(new Comment
         {
@@ -302,7 +318,7 @@ public class ServiceRequestService : IServiceRequestService
         await LogAuditAsync(AuditAction.CommentAdded, "ServiceRequest", id.ToString(),
             $"Comment added to {entity.RequestNumber}", ct);
 
-        return await GetByIdAsync(id, currentUserId, true, ct);
+        return await GetByIdAsync(id, currentUserId, actor, ct);
     }
 
     public async Task<ServiceRequestDetailDto?> RequestApprovalAsync(int id, string reason, string currentUserId, CancellationToken ct = default)
@@ -338,7 +354,7 @@ public class ServiceRequestService : IServiceRequestService
         await LogAuditAsync(AuditAction.ApprovalRequested, "ServiceRequest", id.ToString(),
             $"Approval requested for {entity.RequestNumber}", ct);
 
-        return await GetByIdAsync(id, currentUserId, true, ct);
+        return await GetByIdAsync(id, currentUserId, RequestActor.Requester, ct);
     }
 
     public async Task<ServiceRequestDetailDto?> DecideApprovalAsync(int id, ApprovalDecisionRequest request, string currentUserId, CancellationToken ct = default)
@@ -372,14 +388,37 @@ public class ServiceRequestService : IServiceRequestService
             "ServiceRequest", id.ToString(),
             $"Approval {(request.Approve ? "granted" : "rejected")} for {entity.RequestNumber}", ct);
 
-        return await GetByIdAsync(id, currentUserId, true, ct);
+        return await GetByIdAsync(id, currentUserId, RequestActor.Manager, ct);
     }
 
-    private ServiceRequestDetailDto MapToDetail(ServiceRequest r, bool isAdminOrManager)
+    private static void EnsureCanRead(ServiceRequest request, string currentUserId, RequestActor actor)
     {
+        switch (actor)
+        {
+            case RequestActor.Manager:
+            case RequestActor.SupportAgent:
+                return;
+            default:
+                if (request.RequesterId != currentUserId && request.AssignedToId != currentUserId)
+                {
+                    throw new UnauthorizedAccessException("You do not have access to this request.");
+                }
+
+                return;
+        }
+    }
+
+    private ServiceRequestDetailDto MapToDetail(ServiceRequest r, RequestActor actor, string currentUserId)
+    {
+        // Internal notes are for service desk and management staff, but ownership
+        // wins over role: a manager who raised the request must not read internal
+        // notes about it, otherwise the role would leak the notes through the
+        // requester they happen to be. Keying off the actor alone would do exactly
+        // that, since Actor maps every manager to RequestActor.Manager.
+        var isRequester = r.RequesterId == currentUserId;
         var comments = r.Comments
             .OrderByDescending(c => c.CreatedAt)
-            .Where(c => isAdminOrManager || !c.IsInternal)
+            .Where(c => actor != RequestActor.Requester && !isRequester || !c.IsInternal)
             .Select(c => new CommentDto(c.Id, c.AuthorId, c.Author.FullName, c.Body, c.IsInternal, c.CreatedAt))
             .ToList();
 

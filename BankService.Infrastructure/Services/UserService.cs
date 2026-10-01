@@ -10,6 +10,12 @@ namespace BankService.Infrastructure.Services;
 
 public class UserService : IUserService
 {
+    // Roles that appear in the request assignment picker.
+    private static readonly HashSet<string> AssignableRoles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Admin", "Manager", "Support"
+    };
+
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IDbContext _dbContext;
     private readonly ICurrentUserService _currentUser;
@@ -62,6 +68,31 @@ public class UserService : IUserService
         }
 
         return new PagedResult<UserDto>(dtos, totalCount, page, pageSize, (int)Math.Ceiling(totalCount / (double)pageSize));
+    }
+
+    public async Task<IReadOnlyList<AssignableUserDto>> GetAssignableUsersAsync(CancellationToken ct = default)
+    {
+        var users = await _userManager.Users
+            .AsNoTracking()
+            .Where(u => u.IsActive)
+            .OrderBy(u => u.LastName)
+            .ThenBy(u => u.FirstName)
+            .ToListAsync(ct);
+
+        var results = new List<AssignableUserDto>(users.Count);
+        foreach (var user in users)
+        {
+            // Only roles that can actually take work are offered; assigning an
+            // employee a request they cannot action would be a dead end.
+            var roles = await _userManager.GetRolesAsync(user);
+            var assignable = roles.Where(r => AssignableRoles.Contains(r)).ToList();
+            if (assignable.Count > 0)
+            {
+                results.Add(new AssignableUserDto(user.Id, user.FullName, assignable));
+            }
+        }
+
+        return results;
     }
 
     public async Task<UserDto?> GetByIdAsync(string id, CancellationToken ct = default)

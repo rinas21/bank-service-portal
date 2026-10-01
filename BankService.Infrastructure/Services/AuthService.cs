@@ -1,4 +1,5 @@
 using BankService.Application.DTOs;
+using BankService.Application.Exceptions;
 using BankService.Application.Interfaces;
 using BankService.Domain.Enums;
 using BankService.Domain.Entities;
@@ -37,21 +38,28 @@ public class AuthService : IAuthService
         if (string.IsNullOrEmpty(login.Email) || string.IsNullOrEmpty(login.Password))
         {
             await LogAuditAsync(null, login.Email, AuditAction.LoginFailed, "User", null, "Failed login: missing credentials", ipAddress);
-            throw new UnauthorizedAccessException("Invalid email or password.");
+            throw new AuthenticationFailedException();
         }
 
         var user = await _userManager.FindByEmailAsync(login.Email);
         if (user is null || !user.IsActive)
         {
             await LogAuditAsync(null, login.Email, AuditAction.LoginFailed, "User", null, $"Failed login for {login.Email}", ipAddress);
-            throw new UnauthorizedAccessException("Invalid email or password.");
+            throw new AuthenticationFailedException();
         }
+
+        var branchName = user.BranchId.HasValue
+            ? await _dbContext.Branches
+                .Where(b => b.Id == user.BranchId.Value)
+                .Select(b => b.Name)
+                .FirstOrDefaultAsync()
+            : null;
 
         var result = await _signInManager.CheckPasswordSignInAsync(user, login.Password, lockoutOnFailure: true);
         if (!result.Succeeded)
         {
             await LogAuditAsync(user.Id, user.UserName, AuditAction.LoginFailed, "User", user.Id, $"Failed login for {user.Email}", ipAddress);
-            throw new UnauthorizedAccessException("Invalid email or password.");
+            throw new AuthenticationFailedException();
         }
 
         user.LastLoginAt = DateTime.UtcNow;
@@ -69,7 +77,7 @@ public class AuthService : IAuthService
             user.Email!,
             user.FullName,
             user.EmployeeNumber ?? string.Empty,
-            user.Branch?.Name,
+            branchName,
             roles);
     }
 

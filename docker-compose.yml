@@ -1,14 +1,73 @@
+name: bank-service-portal
+
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: bank-service-sql
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "BankDev@12345"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD must be set in .env}"
+      MSSQL_PID: Developer
     ports:
-      - "1433:1433"
+      - "${SQL_PORT:-1433}:1433"
     volumes:
       - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: bank-service-portal-api:latest
+    container_name: bank-service-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=${SQL_DATABASE:-BankServicePortal};User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True;MultipleActiveResultSets=true"
+      Jwt__Issuer: "${Jwt__Issuer:-BankServicePortal}"
+      Jwt__Audience: "${Jwt__Audience:-BankServicePortal}"
+      Jwt__Key: "${Jwt__Key:?Jwt__Key must be set in .env}"
+      Jwt__ExpiryMinutes: "${Jwt__ExpiryMinutes:-60}"
+      Cors__AllowedOrigins__0: "http://localhost:${FRONTEND_PORT:-8080}"
+      Swagger__Enabled: "${SWAGGER_ENABLED:-true}"
+      # Rate limiter partitions per client IP; the bundled nginx appends the real
+      # peer to X-Forwarded-For so the right-most entry is the trustworthy one.
+      ForwardedHeaders__TrustKnownProxies: "${ForwardedHeaders__TrustKnownProxies:-false}"
+    ports:
+      - "${API_PORT:-8081}:8080"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/ready || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # Consumed at build time; the runtime nginx container has no env config.
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-/api}"
+    image: bank-service-portal-frontend:latest
+    container_name: bank-service-frontend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

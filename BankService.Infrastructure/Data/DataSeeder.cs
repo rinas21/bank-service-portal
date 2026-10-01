@@ -14,21 +14,27 @@ public static class DataSeeder
         UserManager<ApplicationUser> userManager,
         ILogger logger)
     {
-        if (await context.Branches.AnyAsync())
-        {
-            return;
-        }
-
-        logger.LogInformation("Seeding database...");
-
         var roles = new[] { "Admin", "Manager", "Support", "Employee" };
         foreach (var role in roles)
         {
             if (!await roleManager.RoleExistsAsync(role))
             {
-                await roleManager.CreateAsync(new IdentityRole(role));
+                var result = await roleManager.CreateAsync(new IdentityRole(role));
+                if (!result.Succeeded)
+                {
+                    throw new InvalidOperationException(
+                        $"Failed to create role '{role}': {string.Join(", ", result.Errors.Select(e => e.Description))}");
+                }
             }
         }
+
+        if (await context.Branches.AnyAsync())
+        {
+            logger.LogInformation("Seed data already present, skipping.");
+            return;
+        }
+
+        logger.LogInformation("Seeding database...");
 
         var branches = new List<Branch>
         {
@@ -55,16 +61,34 @@ public static class DataSeeder
         var password = "Password@123";
         foreach (var user in users)
         {
-            await userManager.CreateAsync(user, password);
+            var result = await userManager.CreateAsync(user, password);
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to create seed user '{user.Email}': {string.Join(", ", result.Errors.Select(e => e.Description))}");
+            }
         }
 
-        await userManager.AddToRoleAsync(users[0], "Admin");
-        await userManager.AddToRoleAsync(users[1], "Manager");
-        await userManager.AddToRoleAsync(users[2], "Support");
-        await userManager.AddToRoleAsync(users[3], "Support");
-        await userManager.AddToRoleAsync(users[4], "Employee");
-        await userManager.AddToRoleAsync(users[5], "Employee");
-        await userManager.AddToRoleAsync(users[6], "Employee");
+        var roleAssignments = new (ApplicationUser User, string Role)[]
+        {
+            (users[0], "Admin"),
+            (users[1], "Manager"),
+            (users[2], "Support"),
+            (users[3], "Support"),
+            (users[4], "Employee"),
+            (users[5], "Employee"),
+            (users[6], "Employee")
+        };
+
+        foreach (var (user, role) in roleAssignments)
+        {
+            var result = await userManager.AddToRoleAsync(user, role);
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to assign role '{role}' to '{user.Email}': {string.Join(", ", result.Errors.Select(e => e.Description))}");
+            }
+        }
 
         var categories = new[] { "Account Services", "Loan Services", "Card Services", "Technical Support", "Fraud & Security", "Compliance", "General Inquiry" };
         var titles = new[]
@@ -106,10 +130,7 @@ public static class DataSeeder
         };
 
         var random = new Random(42);
-        var requests = new List<ServiceRequest>();
-        var statusHistory = new List<StatusHistory>();
-        var comments = new List<Comment>();
-        var assignments = new List<RequestAssignment>();
+        var year = DateTime.UtcNow.Year;
 
         for (var i = 0; i < 35; i++)
         {
@@ -121,7 +142,7 @@ public static class DataSeeder
 
             var request = new ServiceRequest
             {
-                RequestNumber = $"SR-2026-{i + 1:D5}",
+                RequestNumber = $"SR-{year}-{i + 1:D5}",
                 Title = titles[random.Next(titles.Length)],
                 Description = descriptions[random.Next(descriptions.Length)],
                 Category = categories[random.Next(categories.Length)],
@@ -131,53 +152,52 @@ public static class DataSeeder
                 BranchId = requester.BranchId,
                 CreatedAt = created,
                 DueDate = due,
-                ResolvedAt = status == RequestStatus.Resolved || status == RequestStatus.Closed ? created.AddDays(random.Next(1, 5)) : null,
+                ResolvedAt = status is RequestStatus.Resolved or RequestStatus.Closed ? created.AddDays(random.Next(1, 5)) : null,
                 ClosedAt = status == RequestStatus.Closed ? created.AddDays(random.Next(5, 10)) : null,
                 RequiresApproval = priority == RequestPriority.Critical && random.Next(2) == 0
             };
 
-            requests.Add(request);
-
-            statusHistory.Add(new StatusHistory
+            request.StatusHistory.Add(new StatusHistory
             {
-                ServiceRequestId = request.Id,
+                ServiceRequest = request,
+                ChangedById = requester.Id,
                 FromStatus = RequestStatus.Open,
                 ToStatus = RequestStatus.Open,
-                ChangedById = requester.Id,
                 Reason = "Request created",
                 ChangedAt = created
             });
 
-            if (status == RequestStatus.InProgress || status == RequestStatus.Resolved || status == RequestStatus.Closed)
+            if (status is RequestStatus.InProgress or RequestStatus.Resolved or RequestStatus.Closed)
             {
                 var assignee = users[random.Next(2, 4)];
                 request.AssignedToId = assignee.Id;
-                assignments.Add(new RequestAssignment
+                request.Assignments.Add(new RequestAssignment
                 {
-                    ServiceRequestId = request.Id,
+                    ServiceRequest = request,
                     AssigneeId = assignee.Id,
                     AssignedById = users[1].Id,
+                    Note = "Assigned by branch manager",
                     AssignedAt = created.AddDays(1)
                 });
-                statusHistory.Add(new StatusHistory
+                request.StatusHistory.Add(new StatusHistory
                 {
-                    ServiceRequestId = request.Id,
+                    ServiceRequest = request,
+                    ChangedById = users[1].Id,
                     FromStatus = RequestStatus.Open,
                     ToStatus = RequestStatus.InProgress,
-                    ChangedById = users[1].Id,
                     Reason = $"Assigned to {assignee.FullName}",
                     ChangedAt = created.AddDays(1)
                 });
             }
 
-            if (status == RequestStatus.Resolved || status == RequestStatus.Closed)
+            if (status is RequestStatus.Resolved or RequestStatus.Closed)
             {
-                statusHistory.Add(new StatusHistory
+                request.StatusHistory.Add(new StatusHistory
                 {
-                    ServiceRequestId = request.Id,
+                    ServiceRequest = request,
+                    ChangedById = request.AssignedToId ?? users[2].Id,
                     FromStatus = RequestStatus.InProgress,
                     ToStatus = RequestStatus.Resolved,
-                    ChangedById = request.AssignedToId ?? users[2].Id,
                     Reason = "Issue resolved",
                     ChangedAt = request.ResolvedAt!.Value
                 });
@@ -185,12 +205,12 @@ public static class DataSeeder
 
             if (status == RequestStatus.Closed)
             {
-                statusHistory.Add(new StatusHistory
+                request.StatusHistory.Add(new StatusHistory
                 {
-                    ServiceRequestId = request.Id,
+                    ServiceRequest = request,
+                    ChangedById = users[1].Id,
                     FromStatus = RequestStatus.Resolved,
                     ToStatus = RequestStatus.Closed,
-                    ChangedById = users[1].Id,
                     Reason = "Confirmed with customer",
                     ChangedAt = request.ClosedAt!.Value
                 });
@@ -198,21 +218,35 @@ public static class DataSeeder
 
             if (random.Next(3) == 0)
             {
-                comments.Add(new Comment
+                request.Comments.Add(new Comment
                 {
-                    ServiceRequestId = request.Id,
+                    ServiceRequest = request,
                     AuthorId = users[random.Next(2, 4)].Id,
-                    Body = "Investigating the issue. Will update shortly.",
+                    Body = "Investigating the issue. Will update the customer shortly.",
                     IsInternal = true,
                     CreatedAt = created.AddDays(2)
                 });
             }
+
+            if (request.RequiresApproval)
+            {
+                var decided = status is RequestStatus.Resolved or RequestStatus.Closed;
+                request.Approvals.Add(new Approval
+                {
+                    ServiceRequest = request,
+                    RequestedById = requester.Id,
+                    ApproverId = decided ? users[1].Id : null,
+                    Status = decided ? ApprovalStatus.Approved : ApprovalStatus.Pending,
+                    Reason = "Critical priority request requires manager approval.",
+                    DecisionNote = decided ? "Approved for immediate handling." : null,
+                    RequestedAt = created.AddHours(4),
+                    DecidedAt = decided ? created.AddDays(1) : null
+                });
+            }
+
+            await context.ServiceRequests.AddAsync(request);
         }
 
-        await context.ServiceRequests.AddRangeAsync(requests);
-        await context.StatusHistory.AddRangeAsync(statusHistory);
-        await context.Comments.AddRangeAsync(comments);
-        await context.Assignments.AddRangeAsync(assignments);
         await context.SaveChangesAsync();
 
         logger.LogInformation("Database seeded successfully.");

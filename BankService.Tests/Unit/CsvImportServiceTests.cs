@@ -31,6 +31,13 @@ public class CsvImportServiceTests : IDisposable
             .Setup(x => x.GenerateRequestNumberAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync("SR-2026-00001");
 
+        // Bulk imports allocate a block of distinct numbers up front.
+        _requestNumberServiceMock
+            .Setup(x => x.GenerateRequestNumbersAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Returns<int, CancellationToken>((count, _) =>
+                Task.FromResult<IReadOnlyList<string>>(
+                    Enumerable.Range(1, count).Select(i => $"SR-2026-{i:D5}").ToList()));
+
         _currentUserMock = new Mock<ICurrentUserService>();
         _currentUserMock.Setup(x => x.UserId).Returns("user-1");
         _currentUserMock.Setup(x => x.UserName).Returns("test@example.com");

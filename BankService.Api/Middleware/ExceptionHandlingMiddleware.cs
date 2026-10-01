@@ -1,5 +1,6 @@
 using System.Net;
-using System.Text.Json;
+using BankService.Api.Helpers;
+using BankService.Application.Exceptions;
 
 namespace BankService.Api.Middleware;
 
@@ -22,33 +23,42 @@ public class ExceptionHandlingMiddleware
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "An unhandled exception occurred.");
+            _logger.LogError(ex, "An unhandled exception occurred while processing {Method} {Path}.",
+                context.Request.Method, context.Request.Path);
             await HandleExceptionAsync(context, ex);
         }
     }
 
-    private static async Task HandleExceptionAsync(HttpContext context, Exception exception)
+    private async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
         var (statusCode, message) = exception switch
         {
-            UnauthorizedAccessException => (HttpStatusCode.Forbidden, "You do not have permission to perform this action."),
+            AuthenticationFailedException => (HttpStatusCode.Unauthorized, exception.Message),
+            UnauthorizedAccessException => (HttpStatusCode.Forbidden, exception.Message),
             KeyNotFoundException => (HttpStatusCode.NotFound, "The requested resource was not found."),
             InvalidOperationException => (HttpStatusCode.BadRequest, exception.Message),
             InvalidDataException => (HttpStatusCode.BadRequest, exception.Message),
             ArgumentException => (HttpStatusCode.BadRequest, exception.Message),
-            _ => (HttpStatusCode.InternalServerError, "An unexpected error occurred.")
+            _ => (HttpStatusCode.InternalServerError, "An unexpected error occurred. Please try again later.")
         };
 
+        if (context.Response.HasStarted)
+        {
+            _logger.LogWarning("The response has already started, so the error payload cannot be written.");
+            return;
+        }
+
+        context.Response.Clear();
         context.Response.ContentType = "application/json";
         context.Response.StatusCode = (int)statusCode;
 
-        var response = new
+        var payload = new ErrorPayload
         {
             StatusCode = (int)statusCode,
             Message = message,
             TraceId = context.TraceIdentifier
         };
 
-        await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+        await context.Response.WriteAsJsonAsync(payload);
     }
 }

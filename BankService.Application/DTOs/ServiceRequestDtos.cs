@@ -4,36 +4,36 @@ using BankService.Domain.Enums;
 namespace BankService.Application.DTOs;
 
 public record CreateServiceRequestRequest(
-    [property: Required, StringLength(200)] string Title,
-    [property: Required, StringLength(4000)] string Description,
-    [property: Required, StringLength(100)] string Category,
+    [Required, StringLength(200)] string Title,
+    [Required, StringLength(4000)] string Description,
+    [Required, StringLength(100)] string Category,
     RequestPriority Priority,
     int? BranchId,
     DateTime? DueDate);
 
 public record UpdateServiceRequestRequest(
-    [property: Required, StringLength(200)] string Title,
-    [property: Required, StringLength(4000)] string Description,
-    [property: Required, StringLength(100)] string Category,
+    [Required, StringLength(200)] string Title,
+    [Required, StringLength(4000)] string Description,
+    [Required, StringLength(100)] string Category,
     RequestPriority Priority,
     int? BranchId,
     DateTime? DueDate);
 
 public record UpdateStatusRequest(
-    [property: Required] RequestStatus Status,
-    [property: StringLength(500)] string? Reason);
+    [Required] RequestStatus Status,
+    [StringLength(500)] string? Reason);
 
 public record AssignRequest(
-    [property: Required] string AssigneeId,
-    [property: StringLength(500)] string? Note);
+    [Required] string AssigneeId,
+    [StringLength(500)] string? Note);
 
 public record AddCommentRequest(
-    [property: Required, StringLength(2000)] string Body,
+    [Required, StringLength(2000)] string Body,
     bool IsInternal);
 
 public record ApprovalDecisionRequest(
-    [property: Required] bool Approve,
-    [property: StringLength(500)] string? Note);
+    [Required] bool Approve,
+    [StringLength(500)] string? Note);
 
 public record ServiceRequestListQuery(
     string? Search,

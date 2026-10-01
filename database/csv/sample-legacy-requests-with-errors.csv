@@ -1,0 +1,7 @@
+LegacyRef,Title,Description,Category,Priority,Status,BranchCode,RequesterEmail,DueDate
+LEGACY-0001,Duplicate of an already-imported row,"This row duplicates LEGACY-0001 and must be reported as a duplicate rather than imported.",Technical Support,Critical,Open,NY02,employee1@bankportal.com,2026-11-15
+LEGACY-0020,Row with an unknown requester email,"The requester does not exist, so this row must be rejected.",Account Services,Low,Open,NY02,does-not-exist@bankportal.com,2026-11-01
+LEGACY-0021,Row with an unknown branch code,"The branch code is not present in the branch table, so this row must be rejected.",Loan Services,Low,Open,ZZ99,employee1@bankportal.com,2026-11-01
+LEGACY-0022,Row with an invalid priority,"The priority value is not a recognised enum member, so this row must be rejected.",Card Services,Urgent,Open,NY02,employee1@bankportal.com,2026-11-01
+LEGACY-0023,Row with an invalid due date,"The due date is not a valid date, so this row must be rejected.",General Inquiry,Low,Open,NY02,employee1@bankportal.com,not-a-date
+LEGACY-0024,Row missing the required title,"LegacyRef and RequesterEmail are present but the title is blank, so this row must be rejected.",General Inquiry,Low,Open,NY02,employee1@bankportal.com,

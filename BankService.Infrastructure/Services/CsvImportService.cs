@@ -56,13 +56,10 @@ public class CsvImportService : ICsvImportService
             .ToListAsync(ct);
         var existingRefSet = new HashSet<string>(existingRefs, StringComparer.OrdinalIgnoreCase);
 
-        var existingRequestNumbers = await _dbContext.ServiceRequests
-            .Select(r => r.RequestNumber)
-            .ToListAsync(ct);
-        var existingRequestNumberSet = new HashSet<string>(existingRequestNumbers, StringComparer.OrdinalIgnoreCase);
-
         var branches = await _dbContext.Branches.ToDictionaryAsync(b => b.Code, b => b.Id, StringComparer.OrdinalIgnoreCase, ct);
         var users = await _dbContext.Users.ToDictionaryAsync(u => u.Email!, u => u.Id, StringComparer.OrdinalIgnoreCase, ct);
+
+        var accepted = new List<PendingImportRow>();
 
         var rowNumber = 1;
         string? line;
@@ -154,32 +151,46 @@ public class CsvImportService : ICsvImportService
                 branchId = bid;
             }
 
-            var requestNumber = await _requestNumberService.GenerateRequestNumberAsync(ct);
-            if (existingRequestNumberSet.Contains(requestNumber))
-            {
-                requestNumber = $"{requestNumber}-{Guid.NewGuid().ToString()[..4]}";
-            }
+            existingRefSet.Add(legacyRef);
+            accepted.Add(new PendingImportRow(
+                rowNumber,
+                legacyRef,
+                title,
+                description,
+                string.IsNullOrWhiteSpace(category) ? "General" : category,
+                priority,
+                status,
+                branchId,
+                requesterId,
+                dueDate));
+        }
 
-            var entity = new ServiceRequest
+        // Nothing has been written yet, so the numbers are allocated as one block to
+        // guarantee every accepted row receives a distinct request number.
+        var requestNumbers = await _requestNumberService.GenerateRequestNumbersAsync(accepted.Count, ct);
+
+        for (var i = 0; i < accepted.Count; i++)
+        {
+            var row = accepted[i];
+            var requestNumber = requestNumbers[i];
+
+            _dbContext.ServiceRequests.Add(new ServiceRequest
             {
                 RequestNumber = requestNumber,
-                Title = title,
-                Description = description,
-                Category = string.IsNullOrWhiteSpace(category) ? "General" : category,
-                Priority = priority,
-                Status = status,
-                BranchId = branchId,
-                RequesterId = requesterId,
-                DueDate = dueDate,
+                Title = row.Title,
+                Description = row.Description,
+                Category = row.Category,
+                Priority = row.Priority,
+                Status = row.Status,
+                BranchId = row.BranchId,
+                RequesterId = row.RequesterId,
+                DueDate = row.DueDate,
                 IsMigrated = true,
-                LegacyReference = legacyRef
-            };
+                LegacyReference = row.LegacyReference
+            });
 
-            _dbContext.ServiceRequests.Add(entity);
-            existingRefSet.Add(legacyRef);
-            existingRequestNumberSet.Add(requestNumber);
             imported++;
-            results.Add(new CsvImportRowResult(rowNumber, "Imported", legacyRef, $"Created as {requestNumber}."));
+            results.Add(new CsvImportRowResult(row.RowNumber, "Imported", row.LegacyReference, $"Created as {requestNumber}."));
         }
 
         await _dbContext.SaveChangesAsync(ct);
@@ -189,6 +200,18 @@ public class CsvImportService : ICsvImportService
 
         return new CsvImportResult(results.Count, imported, duplicates, rejected, results);
     }
+
+    private sealed record PendingImportRow(
+        int RowNumber,
+        string LegacyReference,
+        string Title,
+        string Description,
+        string Category,
+        RequestPriority Priority,
+        RequestStatus Status,
+        int? BranchId,
+        string RequesterId,
+        DateTime? DueDate);
 
     private static List<string> ParseCsvLine(string line)
     {

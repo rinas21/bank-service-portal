@@ -1,3 +1,4 @@
+using BankService.Api.Helpers;
 using BankService.Application.DTOs;
 using BankService.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -23,17 +24,15 @@ public class ServiceRequestsController : ControllerBase
     public async Task<ActionResult<PagedResult<ServiceRequestSummaryDto>>> GetList(
         [FromQuery] ServiceRequestListQuery query, CancellationToken ct)
     {
-        var isAdminOrManager = _currentUser.IsInRole("Admin") || _currentUser.IsInRole("Manager");
-        var result = await _service.GetListAsync(query, _currentUser.UserId!, isAdminOrManager, ct);
+        var result = await _service.GetListAsync(query, _currentUser.UserId!, _currentUser.Actor, ct);
         return Ok(result);
     }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<ServiceRequestDetailDto>> GetById(int id, CancellationToken ct)
     {
-        var isAdminOrManager = _currentUser.IsInRole("Admin") || _currentUser.IsInRole("Manager");
-        var result = await _service.GetByIdAsync(id, _currentUser.UserId!, isAdminOrManager, ct);
-        return result is null ? NotFound() : Ok(result);
+        var result = await _service.GetByIdAsync(id, _currentUser.UserId!, _currentUser.Actor, ct);
+        return result is null ? ApiErrors.NotFound() : Ok(result);
     }
 
     [HttpPost]
@@ -48,18 +47,16 @@ public class ServiceRequestsController : ControllerBase
     public async Task<ActionResult<ServiceRequestDetailDto>> Update(
         int id, [FromBody] UpdateServiceRequestRequest request, CancellationToken ct)
     {
-        var isAdminOrManager = _currentUser.IsInRole("Admin") || _currentUser.IsInRole("Manager");
-        var result = await _service.UpdateAsync(id, request, _currentUser.UserId!, isAdminOrManager, ct);
-        return result is null ? NotFound() : Ok(result);
+        var result = await _service.UpdateAsync(id, request, _currentUser.UserId!, _currentUser.Actor, ct);
+        return result is null ? ApiErrors.NotFound() : Ok(result);
     }
 
     [HttpPatch("{id:int}/status")]
     public async Task<ActionResult<ServiceRequestDetailDto>> UpdateStatus(
         int id, [FromBody] UpdateStatusRequest request, CancellationToken ct)
     {
-        var isAdminOrManager = _currentUser.IsInRole("Admin") || _currentUser.IsInRole("Manager");
-        var result = await _service.UpdateStatusAsync(id, request, _currentUser.UserId!, isAdminOrManager, ct);
-        return result is null ? NotFound() : Ok(result);
+        var result = await _service.UpdateStatusAsync(id, request, _currentUser.UserId!, _currentUser.Actor, ct);
+        return result is null ? ApiErrors.NotFound() : Ok(result);
     }
 
     [HttpPost("{id:int}/assign")]
@@ -68,15 +65,15 @@ public class ServiceRequestsController : ControllerBase
         int id, [FromBody] AssignRequest request, CancellationToken ct)
     {
         var result = await _service.AssignAsync(id, request, _currentUser.UserId!, ct);
-        return result is null ? NotFound() : Ok(result);
+        return result is null ? ApiErrors.NotFound() : Ok(result);
     }
 
     [HttpPost("{id:int}/comments")]
     public async Task<ActionResult<ServiceRequestDetailDto>> AddComment(
         int id, [FromBody] AddCommentRequest request, CancellationToken ct)
     {
-        var result = await _service.AddCommentAsync(id, request, _currentUser.UserId!, ct);
-        return result is null ? NotFound() : Ok(result);
+        var result = await _service.AddCommentAsync(id, request, _currentUser.UserId!, _currentUser.Actor, ct);
+        return result is null ? ApiErrors.NotFound() : Ok(result);
     }
 
     [HttpPost("{id:int}/approval")]
@@ -84,7 +81,7 @@ public class ServiceRequestsController : ControllerBase
         int id, [FromBody] ApprovalDecisionRequest request, CancellationToken ct)
     {
         var result = await _service.RequestApprovalAsync(id, request.Note ?? string.Empty, _currentUser.UserId!, ct);
-        return result is null ? NotFound() : Ok(result);
+        return result is null ? ApiErrors.NotFound() : Ok(result);
     }
 
     [HttpPost("{id:int}/approval/decision")]
@@ -93,6 +90,6 @@ public class ServiceRequestsController : ControllerBase
         int id, [FromBody] ApprovalDecisionRequest request, CancellationToken ct)
     {
         var result = await _service.DecideApprovalAsync(id, request, _currentUser.UserId!, ct);
-        return result is null ? NotFound() : Ok(result);
+        return result is null ? ApiErrors.NotFound() : Ok(result);
     }
 }

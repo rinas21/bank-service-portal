@@ -66,7 +66,15 @@ public class ServiceRequestServiceTests : IDisposable
             FirstName = "Jane",
             LastName = "Smith"
         };
-        _context.Users.AddRange(requester, assignee);
+        var support = new ApplicationUser
+        {
+            Id = "support-1",
+            UserName = "support@test.com",
+            Email = "support@test.com",
+            FirstName = "Sam",
+            LastName = "Reed"
+        };
+        _context.Users.AddRange(requester, assignee, support);
 
         _context.ServiceRequests.AddRange(
             new ServiceRequest
@@ -114,7 +122,7 @@ public class ServiceRequestServiceTests : IDisposable
     public async Task GetListAsync_WithNoFilters_ReturnsAllRequests()
     {
         var query = new ServiceRequestListQuery(null, null, null, null, null, null, null, null, null, false, 1, 10);
-        var result = await _service.GetListAsync(query, "user-1", true);
+        var result = await _service.GetListAsync(query, "user-1", RequestActor.Manager);
 
         result.Items.Should().HaveCount(3);
         result.TotalCount.Should().Be(3);
@@ -124,7 +132,7 @@ public class ServiceRequestServiceTests : IDisposable
     public async Task GetListAsync_WithStatusFilter_ReturnsFilteredRequests()
     {
         var query = new ServiceRequestListQuery(null, RequestStatus.Open, null, null, null, null, null, null, null, false, 1, 10);
-        var result = await _service.GetListAsync(query, "user-1", true);
+        var result = await _service.GetListAsync(query, "user-1", RequestActor.Manager);
 
         result.Items.Should().HaveCount(1);
         result.Items[0].Status.Should().Be(RequestStatus.Open);
@@ -134,7 +142,7 @@ public class ServiceRequestServiceTests : IDisposable
     public async Task GetListAsync_WithSearchFilter_ReturnsMatchingRequests()
     {
         var query = new ServiceRequestListQuery("Test Request 1", null, null, null, null, null, null, null, null, false, 1, 10);
-        var result = await _service.GetListAsync(query, "user-1", true);
+        var result = await _service.GetListAsync(query, "user-1", RequestActor.Manager);
 
         result.Items.Should().HaveCount(1);
         result.Items[0].Title.Should().Be("Test Request 1");
@@ -144,7 +152,7 @@ public class ServiceRequestServiceTests : IDisposable
     public async Task GetListAsync_ForNonAdminUser_ReturnsOnlyOwnRequests()
     {
         var query = new ServiceRequestListQuery(null, null, null, null, null, null, null, null, null, false, 1, 10);
-        var result = await _service.GetListAsync(query, "user-1", false);
+        var result = await _service.GetListAsync(query, "user-1", RequestActor.Requester);
 
         result.Items.Should().HaveCount(2);
     }
@@ -152,7 +160,7 @@ public class ServiceRequestServiceTests : IDisposable
     [Fact]
     public async Task GetByIdAsync_WithValidId_ReturnsRequest()
     {
-        var result = await _service.GetByIdAsync(1, "user-1", true);
+        var result = await _service.GetByIdAsync(1, "user-1", RequestActor.Manager);
 
         result.Should().NotBeNull();
         result!.Id.Should().Be(1);
@@ -162,7 +170,7 @@ public class ServiceRequestServiceTests : IDisposable
     [Fact]
     public async Task GetByIdAsync_WithInvalidId_ReturnsNull()
     {
-        var result = await _service.GetByIdAsync(999, "user-1", true);
+        var result = await _service.GetByIdAsync(999, "user-1", RequestActor.Manager);
 
         result.Should().BeNull();
     }
@@ -186,7 +194,7 @@ public class ServiceRequestServiceTests : IDisposable
     {
         var request = new UpdateStatusRequest(RequestStatus.InProgress, "Starting work");
 
-        var result = await _service.UpdateStatusAsync(1, request, "user-1", true);
+        var result = await _service.UpdateStatusAsync(1, request, "user-1", RequestActor.Manager);
 
         result.Should().NotBeNull();
         result!.Status.Should().Be(RequestStatus.InProgress);
@@ -198,7 +206,7 @@ public class ServiceRequestServiceTests : IDisposable
         var request = new UpdateStatusRequest(RequestStatus.Open, "No change");
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _service.UpdateStatusAsync(1, request, "user-1", true));
+            () => _service.UpdateStatusAsync(1, request, "user-1", RequestActor.Manager));
     }
 
     [Fact]
@@ -218,10 +226,129 @@ public class ServiceRequestServiceTests : IDisposable
     {
         var request = new AddCommentRequest("This is a comment", false);
 
-        var result = await _service.AddCommentAsync(1, request, "user-1");
+        var result = await _service.AddCommentAsync(1, request, "user-1", RequestActor.Manager);
 
         result.Should().NotBeNull();
         result!.Comments.Should().Contain(c => c.Body == "This is a comment");
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_AsRequester_ThrowsUnauthorized()
+    {
+        var request = new UpdateStatusRequest(RequestStatus.Resolved, "Marking my own work done");
+
+        var act = () => _service.UpdateStatusAsync(1, request, "user-1", RequestActor.Requester);
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_AsSupportAgent_UpdatesStatus()
+    {
+        var request = new UpdateStatusRequest(RequestStatus.InProgress, "Support picked this up");
+
+        var result = await _service.UpdateStatusAsync(1, request, "support-1", RequestActor.SupportAgent);
+
+        result.Should().NotBeNull();
+        result!.Status.Should().Be(RequestStatus.InProgress);
+    }
+
+    [Fact]
+    public async Task GetListAsync_AsSupportAgent_SeesAllRequests()
+    {
+        var query = new ServiceRequestListQuery(null, null, null, null, null, null, null, null, null, false, 1, 10);
+
+        var result = await _service.GetListAsync(query, "support-1", RequestActor.SupportAgent);
+
+        result.TotalCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_AsUnrelatedRequester_ThrowsUnauthorized()
+    {
+        var act = () => _service.GetByIdAsync(3, "user-1", RequestActor.Requester);
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task AddCommentAsync_AsUnrelatedUser_ThrowsUnauthorized()
+    {
+        var request = new AddCommentRequest("Sneaking a comment in", false);
+
+        var act = () => _service.AddCommentAsync(3, request, "user-1", RequestActor.Requester);
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task AddCommentAsync_InternalCommentAsRequester_ThrowsUnauthorized()
+    {
+        var request = new AddCommentRequest("Internal note", true);
+
+        var act = () => _service.AddCommentAsync(1, request, "user-1", RequestActor.Requester);
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task AddCommentAsync_InternalCommentAsSupportAgent_IsRecorded()
+    {
+        var request = new AddCommentRequest("Internal note", true);
+
+        var result = await _service.AddCommentAsync(1, request, "support-1", RequestActor.SupportAgent);
+
+        result!.Comments.Should().Contain(c => c.Body == "Internal note" && c.IsInternal);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_HidesInternalCommentsFromRequester()
+    {
+        var request = new AddCommentRequest("Internal note", true);
+        await _service.AddCommentAsync(1, request, "support-1", RequestActor.SupportAgent);
+
+        var asRequester = await _service.GetByIdAsync(1, "user-1", RequestActor.Requester);
+        var asSupport = await _service.GetByIdAsync(1, "support-1", RequestActor.SupportAgent);
+
+        asRequester!.Comments.Should().NotContain(c => c.IsInternal);
+        asSupport!.Comments.Should().Contain(c => c.IsInternal);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_HidesInternalCommentsFromManagerWhoRaisedTheRequest()
+    {
+        await _service.AddCommentAsync(1, new AddCommentRequest("Internal note", true), "support-1", RequestActor.SupportAgent);
+
+        // user-1 owns request 1 and also acts with the Manager actor. Ownership
+        // has to win, otherwise a manager filing a request could read the
+        // service desk's internal notes about it.
+        var asOwningManager = await _service.GetByIdAsync(1, "user-1", RequestActor.Manager);
+        var asOtherManager = await _service.GetByIdAsync(1, "user-2", RequestActor.Manager);
+
+        asOwningManager!.Comments.Should().NotContain(c => c.IsInternal);
+        asOtherManager!.Comments.Should().Contain(c => c.IsInternal);
+    }
+
+    [Fact]
+    public async Task AddCommentAsync_InternalCommentFromManagerWhoRaisedTheRequest_ThrowsUnauthorized()
+    {
+        var request = new AddCommentRequest("Internal note", true);
+
+        var act = () => _service.AddCommentAsync(1, request, "user-1", RequestActor.Manager);
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task GetListAsync_ReturnsCommentCounts()
+    {
+        await _service.AddCommentAsync(1, new AddCommentRequest("First", false), "user-1", RequestActor.Manager);
+        await _service.AddCommentAsync(1, new AddCommentRequest("Second", false), "user-1", RequestActor.Manager);
+
+        var query = new ServiceRequestListQuery(null, null, null, null, null, null, null, null, null, false, 1, 10);
+        var result = await _service.GetListAsync(query, "user-1", RequestActor.Manager);
+
+        result.Items.Single(i => i.Id == 1).CommentCount.Should().Be(2);
     }
 
     public void Dispose()

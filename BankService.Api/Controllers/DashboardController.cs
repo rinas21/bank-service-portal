@@ -21,8 +21,7 @@ public class DashboardController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetStats(CancellationToken ct)
     {
-        var role = _currentUser.Roles.FirstOrDefault() ?? "Employee";
-        var stats = await _dashboardService.GetStatsAsync(_currentUser.UserId!, role, ct);
+        var stats = await _dashboardService.GetStatsAsync(_currentUser.UserId!, _currentUser.PrimaryRole, ct);
         return Ok(stats);
     }
 }

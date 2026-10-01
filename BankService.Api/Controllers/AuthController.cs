@@ -1,4 +1,6 @@
 using BankService.Application.DTOs;
+using BankService.Application.Exceptions;
+using BankService.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -20,40 +22,28 @@ public class AuthController : ControllerBase
     [EnableRateLimiting("login")]
     public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginDto login, CancellationToken ct)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
 
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-        var response = await _authService.LoginAsync(login.Email, login.Password, ipAddress, ct);
+        var response = await _authService.LoginAsync(login, ipAddress, ct);
         return Ok(response);
     }
 
     [HttpPost("register")]
-    public async Task<IActionResult> Register([FromBody] RegisterDto register, CancellationToken ct)
+    public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterDto register, CancellationToken ct)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
 
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-        var response = await _authService.RegisterAsync(register.FirstName, register.LastName, register.Email, register.EmployeeNumber, register.BranchId, register.Password, ipAddress, ct);
-        return Ok(new { StatusCode = 200, Message = "Registration successful." });
+        var response = await _authService.RegisterAsync(register, ipAddress, ct);
+        return Ok(response);
     }
 
     [HttpPost("change-password")]
     [Authorize]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto changePassword, CancellationToken ct)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
 
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? throw new UnauthorizedAccessException();
+            ?? throw new AuthenticationFailedException("Authentication required.");
         await _authService.ChangePasswordAsync(userId, changePassword.CurrentPassword, changePassword.NewPassword, ct);
         return NoContent();
     }

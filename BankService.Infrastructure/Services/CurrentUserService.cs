@@ -24,4 +24,29 @@ public class CurrentUserService : ICurrentUserService
 
     public bool IsInRole(string role) =>
         _httpContextAccessor.HttpContext?.User?.IsInRole(role) ?? false;
+
+    // Ordered most privileged first. Kept in one place so role precedence is
+    // decided consistently rather than by the order claims happen to appear.
+    private static readonly string[] RolePrecedence = ["Admin", "Manager", "Support", "Employee"];
+
+    public string PrimaryRole =>
+        RolePrecedence.FirstOrDefault(IsInRole) ?? RolePrecedence[^1];
+
+    public RequestActor Actor
+    {
+        get
+        {
+            if (!IsAuthenticated)
+            {
+                return RequestActor.Anonymous;
+            }
+
+            if (IsInRole("Admin") || IsInRole("Manager"))
+            {
+                return RequestActor.Manager;
+            }
+
+            return IsInRole("Support") ? RequestActor.SupportAgent : RequestActor.Requester;
+        }
+    }
 }

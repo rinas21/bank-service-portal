@@ -1,0 +1,42 @@
+# Build stage: restore and publish the API and its layered projects.
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# Restore first with only the project files so the layer cache survives code edits.
+COPY BankService.Domain/BankService.Domain.csproj BankService.Domain/
+COPY BankService.Application/BankService.Application.csproj BankService.Application/
+COPY BankService.Infrastructure/BankService.Infrastructure.csproj BankService.Infrastructure/
+COPY BankService.Api/BankService.Api.csproj BankService.Api/
+RUN dotnet restore BankService.Api/BankService.Api.csproj
+
+COPY . .
+RUN dotnet publish BankService.Api/BankService.Api.csproj -c Release -o /app/publish --no-restore
+
+# Runtime stage.
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+
+# curl is needed for the container health check; the base image ships neither
+# curl nor wget.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Run as a non-root user.
+RUN adduser --disabled-password --gecos "" --uid 1001 appuser
+
+COPY --from=build /app/publish .
+
+USER appuser
+EXPOSE 8080
+
+ENV ASPNETCORE_URLS=http://+:8080 \
+    ASPNETCORE_ENVIRONMENT=Production \
+    DOTNET_gcServer=1
+
+# Process-level liveness only. Docker Compose overrides this with /health/ready
+# so dependents also wait for SQL Server.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=10 \
+    CMD curl -fsS http://localhost:8080/health/live || exit 1
+
+ENTRYPOINT ["dotnet", "BankService.Api.dll"]
