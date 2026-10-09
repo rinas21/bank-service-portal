@@ -1,5 +1,6 @@
 import { api } from '@/lib/api'
 import type {
+  AssignableUser,
   AuditAction,
   AuditLog,
   AuthResponse,
@@ -125,7 +126,7 @@ export const userApi = {
       signal,
     ),
 
-  assignable: (signal?: AbortSignal) => api.get<User[]>('/users/assignable', undefined, signal),
+  assignable: (signal?: AbortSignal) => api.get<AssignableUser[]>('/users/assignable', undefined, signal),
 
   get: (id: string, signal?: AbortSignal) => api.get<User>(`/users/${id}`, undefined, signal),
 

@@ -122,6 +122,7 @@ async function request<T>(
   options: { query?: Record<string, QueryValue>; body?: unknown; formData?: FormData; signal?: AbortSignal } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {}
+  const storedAuth = readStoredAuth()
   const auth = restoreSession()
 
   if (auth) {
@@ -144,11 +145,14 @@ async function request<T>(
   })
 
   if (response.status === 401) {
-    // A 401 with a stored token means the session is no longer valid, so drop it
-    // and sign the user out. Without one it is the response to the credential
-    // check itself, and the server's message ("invalid credentials", account
-    // disabled) is the useful thing to show.
-    if (auth) {
+    // A 401 while a session is stored means the session is no longer valid, so
+    // drop it and sign the user out. restoreSession() removes an already-expired
+    // token before the request is sent, so `storedAuth` is checked as well as
+    // `auth`; otherwise an expired token would leave the user stuck on
+    // authenticated screens. With no stored session this is the response to the
+    // credential check itself, and the server's message is the useful thing to
+    // show.
+    if (auth || storedAuth) {
       authStore.clear()
       onUnauthorized?.()
       throw new ApiError(401, null, 'Your session has expired. Please sign in again.')

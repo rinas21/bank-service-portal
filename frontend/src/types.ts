@@ -168,6 +168,12 @@ export interface User {
   roles: string[]
 }
 
+export interface AssignableUser {
+  id: string
+  fullName: string
+  roles: string[]
+}
+
 export interface Branch {
   id: number
   code: string

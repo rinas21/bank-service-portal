@@ -208,6 +208,7 @@ export default function AuditLogsPage() {
             Apply
           </Button>
           <Button
+            type="button"
             variant="ghost"
             onClick={resetFilters}
           >

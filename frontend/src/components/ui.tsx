@@ -85,7 +85,7 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   isLoading?: boolean
 }
 
-export function Button({ variant = 'primary', isLoading, children, className, ...props }: ButtonProps) {
+export function Button({ variant = 'primary', isLoading, children, className, disabled, ...props }: ButtonProps) {
   const variantClass = {
     primary: 'btn-primary',
     secondary: 'btn-secondary',
@@ -94,7 +94,7 @@ export function Button({ variant = 'primary', isLoading, children, className, ..
   }[variant]
 
   return (
-    <button className={`${variantClass} ${className ?? ''}`} disabled={isLoading || props.disabled} {...props}>
+    <button className={`${variantClass} ${className ?? ''}`} disabled={isLoading || disabled} {...props}>
       {isLoading && <Spinner className="size-4" />}
       {children}
     </button>

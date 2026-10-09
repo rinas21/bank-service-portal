@@ -23,6 +23,7 @@ public class AuditLogService : IAuditLogService
             var s = query.Search.Trim().ToLower();
             q = q.Where(l => (l.UserName != null && l.UserName.ToLower().Contains(s))
                 || (l.Details != null && l.Details.ToLower().Contains(s))
+                || (l.EntityId != null && l.EntityId.ToLower().Contains(s))
                 || (l.EntityType.ToLower().Contains(s)));
         }
 

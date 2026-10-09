@@ -21,16 +21,21 @@ export default function MigrationPage() {
   function acceptFile(candidate: File | undefined) {
     setError('')
     setResult(null)
+    // Drop any previously chosen file first so an invalid pick cannot leave the
+    // old file selected and still importable.
+    setFile(null)
 
     if (!candidate) return
 
     if (!candidate.name.toLowerCase().endsWith('.csv')) {
       setError('Only .csv files are accepted.')
+      if (inputRef.current) inputRef.current.value = ''
       return
     }
 
     if (candidate.size > MAX_FILE_SIZE_BYTES) {
       setError('The file is larger than 2 MB. Please split it and try again.')
+      if (inputRef.current) inputRef.current.value = ''
       return
     }
 

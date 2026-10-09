@@ -19,13 +19,13 @@ import { errorMessage } from '@/lib/api'
 import { useToast } from '@/context/toastContext'
 import type {
   Approval,
+  AssignableUser,
   Assignment,
   Branch,
   RequestPriority,
   RequestStatus,
   ServiceRequestDetail,
   StatusHistoryEntry,
-  User,
 } from '@/types'
 import {
   Button,
@@ -76,7 +76,7 @@ export default function RequestDetailPage() {
   const [commentBody, setCommentBody] = useState('')
   const [isInternalComment, setIsInternalComment] = useState(false)
 
-  const [agents, setAgents] = useState<User[]>([])
+  const [agents, setAgents] = useState<AssignableUser[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
 
   // Dialog form state.
@@ -122,20 +122,25 @@ export default function RequestDetailPage() {
     return () => controller.abort()
   }, [load, requestId])
 
-  // Reference data for the assignment and edit dialogs.
+  // Branch data backs the edit dialog, which any request owner can open, so it
+  // is loaded for every authenticated role rather than only privileged ones.
   useEffect(() => {
-    if (!hasRole('Admin', 'Manager', 'Support')) return
     const controller = new AbortController()
-
-    userApi
-      .assignable(controller.signal)
-      .then((result) => setAgents(result))
-      .catch(() => setAgents([]))
     branchApi
       .list({ isActive: true, pageSize: 100 }, controller.signal)
       .then((result) => setBranches(result.items))
       .catch(() => setBranches([]))
+    return () => controller.abort()
+  }, [])
 
+  // Agent data backs the assignment dialog, which only staff can reach.
+  useEffect(() => {
+    if (!hasRole('Admin', 'Manager', 'Support')) return
+    const controller = new AbortController()
+    userApi
+      .assignable(controller.signal)
+      .then((result) => setAgents(result))
+      .catch(() => setAgents([]))
     return () => controller.abort()
   }, [hasRole])
 
@@ -156,8 +161,12 @@ export default function RequestDetailPage() {
     const hasPendingApproval = (request.approvals ?? []).some((a) => a.status === 'Pending')
 
     return {
-      // Mirrors the API rules: managers/admins or the request owner.
-      canEdit: hasRole('Admin', 'Manager') || isOwner,
+      // Mirrors the API rules: managers/admins or the request owner, and the API
+      // rejects edits once a request is resolved or closed.
+      canEdit:
+        (hasRole('Admin', 'Manager') || isOwner) &&
+        request.status !== 'Resolved' &&
+        request.status !== 'Closed',
       // Employees may not change status; support acts on assigned work.
       canChangeStatus: hasRole('Admin', 'Manager') || (hasRole('Support') && (isAssignee || !request.assignedToId)),
       canAssign: hasRole('Admin', 'Manager', 'Support'),
@@ -185,7 +194,10 @@ export default function RequestDetailPage() {
   function openDialog(kind: Exclude<DialogKind, null>) {
     setFormError('')
     if (kind === 'status' && request) {
-      setStatusDraft(request.status === 'Open' ? 'InProgress' : 'Resolved')
+      // Default to the first legal transition for the current status, so the
+      // select always shows an option that actually exists (Resolved -> Closed,
+      // Closed -> InProgress, and so on) instead of rendering blank.
+      setStatusDraft(STATUS_TRANSITIONS[request.status]?.[0] ?? 'InProgress')
       setReasonDraft('')
     }
     if (kind === 'assign' && request) {

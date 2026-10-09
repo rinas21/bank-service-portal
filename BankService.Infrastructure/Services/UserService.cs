@@ -40,6 +40,27 @@ public class UserService : IUserService
             .AsNoTracking()
             .AsQueryable();
 
+        // The role filter must narrow the set before it is paginated. Filtering
+        // after Skip/Take only removes rows from the current page in memory, so
+        // the page comes back short (or empty) while totalCount ignores the
+        // filter and the paginator advertises pages that hold no matches.
+        if (!string.IsNullOrWhiteSpace(role))
+        {
+            IList<ApplicationUser> usersInRole;
+            try
+            {
+                usersInRole = await _userManager.GetUsersInRoleAsync(role);
+            }
+            catch (InvalidOperationException)
+            {
+                // An unknown role name can never match a user.
+                usersInRole = Array.Empty<ApplicationUser>();
+            }
+
+            var roleUserIds = usersInRole.Select(u => u.Id).ToList();
+            query = query.Where(u => roleUserIds.Contains(u.Id));
+        }
+
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim().ToLower();
@@ -59,11 +80,10 @@ public class UserService : IUserService
             .Take(pageSize)
             .ToListAsync(ct);
 
-        var dtos = new List<UserDto>();
+        var dtos = new List<UserDto>(users.Count);
         foreach (var u in users)
         {
             var roles = await _userManager.GetRolesAsync(u);
-            if (!string.IsNullOrWhiteSpace(role) && !roles.Contains(role)) continue;
             dtos.Add(MapToDto(u, roles));
         }
 

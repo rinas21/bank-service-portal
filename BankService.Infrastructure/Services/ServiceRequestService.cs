@@ -65,6 +65,7 @@ public class ServiceRequestService : IServiceRequestService
             "title" => query.Descending ? q.OrderByDescending(r => r.Title) : q.OrderBy(r => r.Title),
             "duedate" => query.Descending ? q.OrderByDescending(r => r.DueDate) : q.OrderBy(r => r.DueDate),
             "createdat" => query.Descending ? q.OrderByDescending(r => r.CreatedAt) : q.OrderBy(r => r.CreatedAt),
+            "requestnumber" => query.Descending ? q.OrderByDescending(r => r.RequestNumber) : q.OrderBy(r => r.RequestNumber),
             _ => q.OrderByDescending(r => r.CreatedAt)
         };
 
@@ -220,8 +221,19 @@ public class ServiceRequestService : IServiceRequestService
         entity.Status = request.Status;
         entity.UpdatedAt = DateTime.UtcNow;
 
-        if (request.Status == RequestStatus.Resolved) entity.ResolvedAt = DateTime.UtcNow;
-        if (request.Status == RequestStatus.Closed) entity.ClosedAt = DateTime.UtcNow;
+        // Reopening a request must clear the terminal timestamps; otherwise a
+        // request moved back to Open/InProgress still reports a ResolvedAt or
+        // ClosedAt in listings and reports.
+        if (request.Status is not (RequestStatus.Resolved or RequestStatus.Closed))
+        {
+            entity.ResolvedAt = null;
+            entity.ClosedAt = null;
+        }
+        else
+        {
+            if (request.Status == RequestStatus.Resolved) entity.ResolvedAt = DateTime.UtcNow;
+            if (request.Status == RequestStatus.Closed) entity.ClosedAt = DateTime.UtcNow;
+        }
 
         _dbContext.StatusHistory.Add(new StatusHistory
         {
