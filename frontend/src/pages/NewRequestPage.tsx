@@ -53,8 +53,9 @@ export default function NewRequestPage() {
         category: category.trim(),
         priority,
         branchId: branchId ? Number(branchId) : null,
-        // The API expects a date-only value for the due date.
-        dueDate: dueDate ? new Date(`${dueDate}T00:00:00Z`).toISOString() : null,
+        // Send the date as-is: a due date is a calendar date, not an instant, so
+        // anchoring it to UTC midnight would shift it by a day in local timezones.
+        dueDate: dueDate || null,
       })
       navigate(`/requests/${created.id}`, { replace: true })
     } catch (err) {

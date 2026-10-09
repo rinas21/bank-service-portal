@@ -1,3 +1,4 @@
+using BankService.Application.Common;
 using BankService.Application.DTOs;
 using BankService.Application.Interfaces;
 using BankService.Domain.Entities;
@@ -35,6 +36,7 @@ public class UserService : IUserService
 
     public async Task<PagedResult<UserDto>> GetListAsync(string? search, string? role, bool? isActive, int page, int pageSize, CancellationToken ct = default)
     {
+        (page, pageSize) = Pagination.Normalize(page, pageSize);
         var query = _userManager.Users
             .Include(u => u.Branch)
             .AsNoTracking()

@@ -145,6 +145,21 @@ public class ApiIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task GetRequests_WithOutOfRangePaging_ClampsInsteadOfFailing()
+    {
+        await CreateUserAsync("paging@test.com", "Paging", "User", "Employee");
+        SetAuthToken(await GetAuthTokenAsync("paging@test.com", "Password@123"));
+
+        var response = await _client.GetAsync("/api/servicerequests?page=0&pageSize=0");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var result = await response.Content.ReadFromJsonAsync<PagedResult<ServiceRequestSummaryDto>>(TestJson.Options);
+        result.Should().NotBeNull();
+        result!.Page.Should().Be(1);
+        result.PageSize.Should().Be(1);
+    }
+
+    [Fact]
     public async Task CreateRequest_WithValidData_CreatesRequest()
     {
         await CreateUserAsync("creator@test.com", "Creator", "User", "Employee");
@@ -256,5 +271,32 @@ public class ApiIntegrationTests : IDisposable
 
         var response = await _client.GetAsync("/api/users/assignable");
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task GetUsers_FilteredByRole_ReturnsAccuratePaging()
+    {
+        await CreateUserAsync("role-employee-a@test.com", "Role", "EmployeeA", "Employee");
+        await CreateUserAsync("role-employee-b@test.com", "Role", "EmployeeB", "Employee");
+        await CreateUserAsync("role-admin@test.com", "Role", "Admin", "Admin");
+
+        SetAuthToken(await GetAuthTokenAsync("role-admin@test.com", "Password@123"));
+
+        var page = await _client.GetFromJsonAsync<PagedResult<UserDto>>(
+            "/api/users?role=Employee&pageSize=10", TestJson.Options);
+
+        page.Should().NotBeNull();
+        page!.Items.Should().NotBeEmpty();
+        page.Items.Should().OnlyContain(u => u.Roles.Contains("Employee"));
+        // The role filter must be applied before paging, so the total reflects
+        // the filtered set rather than every user.
+        page.TotalCount.Should().Be(page.Items.Count);
+    }
+
+    [Fact]
+    public async Task GetUsers_WithoutAuth_ReturnsUnauthorized()
+    {
+        var response = await _client.GetAsync("/api/users");
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 }

@@ -351,6 +351,43 @@ public class ServiceRequestServiceTests : IDisposable
         result.Items.Single(i => i.Id == 1).CommentCount.Should().Be(2);
     }
 
+    [Fact]
+    public async Task GetListAsync_SortByRequestNumber_OrdersByNumber()
+    {
+        var query = new ServiceRequestListQuery(null, null, null, null, null, null, null, null, "requestNumber", false, 1, 10);
+
+        var result = await _service.GetListAsync(query, "user-1", RequestActor.Manager);
+
+        result.Items.Select(i => i.RequestNumber).Should().BeInAscendingOrder();
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_ReopeningRequest_ClearsTerminalTimestamps()
+    {
+        var resolved = await _service.UpdateStatusAsync(
+            1, new UpdateStatusRequest(RequestStatus.Resolved, "Done"), "user-1", RequestActor.Manager);
+        resolved!.ResolvedAt.Should().NotBeNull();
+
+        var reopened = await _service.UpdateStatusAsync(
+            1, new UpdateStatusRequest(RequestStatus.InProgress, "Reopened"), "user-1", RequestActor.Manager);
+
+        reopened!.ResolvedAt.Should().BeNull();
+        reopened.ClosedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetListAsync_WithOutOfRangePaging_ClampsToSafeRange()
+    {
+        var query = new ServiceRequestListQuery(null, null, null, null, null, null, null, null, null, false, 0, 0);
+
+        var result = await _service.GetListAsync(query, "user-1", RequestActor.Manager);
+
+        result.Page.Should().Be(1);
+        result.PageSize.Should().Be(1);
+        result.Items.Should().HaveCount(1);
+        result.TotalCount.Should().Be(3);
+    }
+
     public void Dispose()
     {
         _context.Dispose();

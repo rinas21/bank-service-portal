@@ -1,3 +1,4 @@
+using BankService.Application.Common;
 using BankService.Application.DTOs;
 using BankService.Application.Interfaces;
 using BankService.Domain.Entities;
@@ -29,6 +30,7 @@ public class ServiceRequestService : IServiceRequestService
     public async Task<PagedResult<ServiceRequestSummaryDto>> GetListAsync(
         ServiceRequestListQuery query, string currentUserId, RequestActor actor, CancellationToken ct = default)
     {
+        var (page, pageSize) = Pagination.Normalize(query.Page, query.PageSize);
         var q = _dbContext.ServiceRequests
             .Include(r => r.Requester)
             .Include(r => r.AssignedTo)
@@ -72,8 +74,8 @@ public class ServiceRequestService : IServiceRequestService
         var totalCount = await q.CountAsync(ct);
 
         var items = await q
-            .Skip((query.Page - 1) * query.PageSize)
-            .Take(query.PageSize)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync(ct);
 
         var pageIds = items.Select(r => r.Id).ToList();
@@ -101,8 +103,8 @@ public class ServiceRequestService : IServiceRequestService
             commentCounts.GetValueOrDefault(r.Id))).ToList();
 
         return new PagedResult<ServiceRequestSummaryDto>(
-            dtos, totalCount, query.Page, query.PageSize,
-            (int)Math.Ceiling(totalCount / (double)query.PageSize));
+            dtos, totalCount, page, pageSize,
+            (int)Math.Ceiling(totalCount / (double)pageSize));
     }
 
     public async Task<ServiceRequestDetailDto?> GetByIdAsync(int id, string currentUserId, RequestActor actor, CancellationToken ct = default)

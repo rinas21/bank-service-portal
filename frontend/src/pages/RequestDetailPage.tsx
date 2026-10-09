@@ -57,6 +57,22 @@ function formatDateTime(value: string | null | undefined) {
     : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
+// Due dates are calendar dates, not instants. Formatting the date portion
+// directly avoids a UTC-midnight value rendering as the previous day.
+function formatDateOnly(value: string | null | undefined) {
+  if (!value) return '—'
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString(undefined, { dateStyle: 'medium' })
+}
+
+function isOverdue(value: string | null | undefined) {
+  if (!value) return false
+  const due = new Date(`${value.slice(0, 10)}T00:00:00`)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return due.getTime() < today.getTime()
+}
+
 type DialogKind = 'status' | 'assign' | 'edit' | 'approval' | 'decision' | null
 
 export default function RequestDetailPage() {
@@ -351,12 +367,12 @@ export default function RequestDetailPage() {
             <dt className="text-xs font-semibold uppercase tracking-wide text-ink-500">Due date</dt>
             <dd
               className={`mt-1 text-sm font-medium ${
-                request.dueDate && new Date(request.dueDate) < new Date() && request.status !== 'Closed' && request.status !== 'Resolved'
+                isOverdue(request.dueDate) && request.status !== 'Closed' && request.status !== 'Resolved'
                   ? 'text-red-600'
                   : 'text-ink-900'
               }`}
             >
-              {request.dueDate ? formatDateTime(request.dueDate) : '—'}
+              {request.dueDate ? formatDateOnly(request.dueDate) : '—'}
             </dd>
           </div>
         </dl>
@@ -719,9 +735,7 @@ export default function RequestDetailPage() {
                       category: editDraft.category.trim(),
                       priority: editDraft.priority,
                       branchId: editDraft.branchId ? Number(editDraft.branchId) : null,
-                      dueDate: editDraft.dueDate
-                        ? new Date(`${editDraft.dueDate}T00:00:00Z`).toISOString()
-                        : null,
+                      dueDate: editDraft.dueDate || null,
                     }),
                   'Request updated.',
                 )

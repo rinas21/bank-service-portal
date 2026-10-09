@@ -1,6 +1,7 @@
 # .NET
 **/bin/
 **/obj/
+**/TestResults/
 *.user
 *.suo
 .vs/
@@ -24,5 +25,5 @@
 Thumbs.db
 
 # Logs
-*.log:wq
+*.log
 

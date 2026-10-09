@@ -1,3 +1,4 @@
+using BankService.Application.Common;
 using BankService.Application.DTOs;
 using BankService.Application.Interfaces;
 using BankService.Domain.Entities;
@@ -19,6 +20,7 @@ public class BranchService : IBranchService
 
     public async Task<PagedResult<BranchDto>> GetListAsync(string? search, bool? isActive, int page, int pageSize, CancellationToken ct = default)
     {
+        (page, pageSize) = Pagination.Normalize(page, pageSize);
         var query = _dbContext.Branches
             .Include(b => b.Users)
             .Include(b => b.ServiceRequests)

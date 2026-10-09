@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowDownUp,
@@ -40,7 +40,9 @@ const SORTABLE_COLUMNS = [
 
 function formatDate(value: string | null) {
   if (!value) return '—'
-  const date = new Date(value)
+  // Parse the date portion as a local calendar date so a UTC-midnight value
+  // does not render as the previous day in western timezones.
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`)
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString()
 }
 
@@ -71,6 +73,12 @@ export default function RequestsPage() {
   const requiresApproval = searchParams.get('requiresApproval') ?? ''
   const sortBy = searchParams.get('sortBy') ?? ''
   const descending = searchParams.get('descending') !== 'false'
+
+  // Category is free text, so it is debounced before it reaches the URL. Applying
+  // it on every keystroke would push a history entry and fire a request per
+  // character.
+  const [categoryDraft, setCategoryDraft] = useState(category)
+  const categoryTimer = useRef<number | undefined>(undefined)
 
   const queryKey = useMemo(
     () =>
@@ -120,6 +128,29 @@ export default function RequestsPage() {
     if (next.toString() === searchParams.toString()) refresh()
     else setSearchParams(next, { replace: false })
   }
+
+  // Debounces the free-text category filter, then writes it to the URL without
+  // pushing a history entry per keystroke. The functional form of
+  // setSearchParams keeps any other filter change made during the wait intact.
+  function scheduleCategory(value: string) {
+    setCategoryDraft(value)
+    if (categoryTimer.current !== undefined) window.clearTimeout(categoryTimer.current)
+    categoryTimer.current = window.setTimeout(() => {
+      setError('')
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          if (value) next.set('category', value)
+          else next.delete('category')
+          next.delete('page')
+          return next
+        },
+        { replace: true },
+      )
+    }, 300)
+  }
+
+  useEffect(() => () => window.clearTimeout(categoryTimer.current), [])
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -179,6 +210,8 @@ export default function RequestsPage() {
     setError('')
     setSearchDraft('')
     setSearch('')
+    setCategoryDraft('')
+    if (categoryTimer.current !== undefined) window.clearTimeout(categoryTimer.current)
     const next = new URLSearchParams()
     if (pageSize !== 10) next.set('pageSize', String(pageSize))
     if (next.toString() === searchParams.toString()) refresh()
@@ -295,8 +328,8 @@ export default function RequestsPage() {
               <TextInput
                 id="filter-category"
                 placeholder="e.g. Account Services"
-                value={category}
-                onChange={(event) => updateParams({ category: event.target.value })}
+                value={categoryDraft}
+                onChange={(event) => scheduleCategory(event.target.value)}
               />
             </Field>
 

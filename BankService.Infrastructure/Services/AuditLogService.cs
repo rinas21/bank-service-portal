@@ -1,3 +1,4 @@
+using BankService.Application.Common;
 using BankService.Application.DTOs;
 using BankService.Application.Interfaces;
 using BankService.Domain.Enums;
@@ -16,6 +17,7 @@ public class AuditLogService : IAuditLogService
 
     public async Task<PagedResult<AuditLogDto>> GetListAsync(AuditLogQuery query, CancellationToken ct = default)
     {
+        var (page, pageSize) = Pagination.Normalize(query.Page, query.PageSize);
         var q = _dbContext.AuditLogs.AsNoTracking().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(query.Search))
@@ -35,14 +37,14 @@ public class AuditLogService : IAuditLogService
         var totalCount = await q.CountAsync(ct);
         var items = await q
             .OrderByDescending(l => l.Timestamp)
-            .Skip((query.Page - 1) * query.PageSize)
-            .Take(query.PageSize)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync(ct);
 
         var dtos = items.Select(l => new AuditLogDto(l.Id, l.UserId, l.UserName, l.Action.ToString(),
             l.EntityType, l.EntityId, l.Details, l.IpAddress, l.Timestamp)).ToList();
 
-        return new PagedResult<AuditLogDto>(dtos, totalCount, query.Page, query.PageSize, (int)Math.Ceiling(totalCount / (double)query.PageSize));
+        return new PagedResult<AuditLogDto>(dtos, totalCount, page, pageSize, (int)Math.Ceiling(totalCount / (double)pageSize));
     }
 
     public async Task LogAsync(AuditLogDto entry, CancellationToken ct = default)
